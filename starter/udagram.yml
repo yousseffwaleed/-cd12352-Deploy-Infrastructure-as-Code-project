@@ -1,18 +1,233 @@
-Description: CD12352 - Infrastructure as Code Project - Udagram
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CD12352 - Infrastructure as Code Project - Udagram application
 
 Parameters:
-  # Add your parameters here
+  EnvironmentName:
+    Description: Prefix used by the network stack exports and application resources.
+    Type: String
+    Default: Udagram
+
+  UbuntuAmiId:
+    Description: Ubuntu 22 AMI ID for the selected AWS region.
+    Type: AWS::EC2::Image::Id
+
+  InstanceType:
+    Description: EC2 instance type for the application servers.
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
 
 Resources:
-  # Add your resources here
-  # We include a portion of the LaunchTemplate resource so you can use the UserData.
+  StaticContentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-static-content
+
+  StaticContentBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StaticContentBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadStaticContent
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub ${StaticContentBucket.Arn}/*
+
+  WebServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: StaticContentReadWrite
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt StaticContentBucket.Arn
+                  - !Sub ${StaticContentBucket.Arn}/*
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-web-server-role
+
+  WebServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref WebServerRole
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow public HTTP traffic to the Application Load Balancer.
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${EnvironmentName}-VPCID
+      SecurityGroupIngress:
+        - Description: Public HTTP access
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - Description: Allow responses to application servers
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-alb-sg
+
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP traffic from the Application Load Balancer.
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${EnvironmentName}-VPCID
+      SecurityGroupIngress:
+        - Description: HTTP from the ALB security group
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - Description: Allow outbound internet access through NAT
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-web-sg
+
   WebAppLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
-    Properties: 
+    Properties:
+      LaunchTemplateName: !Sub ${EnvironmentName}-web-launch-template
       LaunchTemplateData:
+        ImageId: !Ref UbuntuAmiId
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Name: !Ref WebServerInstanceProfile
+        SecurityGroupIds:
+          - !Ref WebServerSecurityGroup
         UserData:
-          Fn::Base64: |
+          Fn::Base64: !Sub |
             #!/bin/bash
+            set -e
             apt-get update -y
-            sudo apt-get install nginx -y
-            service nginx start
+            apt-get install -y nginx awscli
+            systemctl enable nginx
+            printf '%s\n' '<html><head><title>Udagram</title></head><body><h1>It works! Udagram, Udacity</h1></body></html>' > /tmp/index.html
+            aws s3 cp /tmp/index.html s3://${StaticContentBucket}/index.html
+            mkdir -p /var/www/html
+            aws s3 cp s3://${StaticContentBucket}/index.html /var/www/html/index.html
+            chown -R www-data:www-data /var/www/html
+            systemctl restart nginx
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - Fn::ImportValue:
+            !Sub ${EnvironmentName}-PUBLIC-SUBNET-1
+        - Fn::ImportValue:
+            !Sub ${EnvironmentName}-PUBLIC-SUBNET-2
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-alb
+
+  ApplicationTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${EnvironmentName}-VPCID
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckPort: '80'
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: '200'
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-targets
+
+  ApplicationLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApplicationTargetGroup
+
+  WebAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub ${EnvironmentName}-web-asg
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WebAppLaunchTemplate
+        Version: !GetAtt WebAppLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - Fn::ImportValue:
+            !Sub ${EnvironmentName}-PRIVATE-SUBNET-1
+        - Fn::ImportValue:
+            !Sub ${EnvironmentName}-PRIVATE-SUBNET-2
+      TargetGroupARNs:
+        - !Ref ApplicationTargetGroup
+      MinSize: '4'
+      DesiredCapacity: '4'
+      MaxSize: '4'
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-web-server
+          PropagateAtLaunch: true
+
+Outputs:
+  StaticContentBucketName:
+    Description: S3 bucket containing the static website content.
+    Value: !Ref StaticContentBucket
+    Export:
+      Name: !Sub ${EnvironmentName}-STATIC-CONTENT-BUCKET
+
+  LoadBalancerDNSName:
+    Description: DNS name of the internet-facing Application Load Balancer.
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  LoadBalancerURL:
+    Description: Public HTTP URL for the Udagram application.
+    Value: !Sub http://${ApplicationLoadBalancer.DNSName}
+    Export:
+      Name: !Sub ${EnvironmentName}-ALB-URL

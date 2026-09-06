@@ -1,6 +1,14 @@
 [
 	{
-		"ParameterKey": "Add you parameters here",
-		"ParameterValue": "Add you parameters here"
+		"ParameterKey": "EnvironmentName",
+		"ParameterValue": "Udagram"
+	},
+	{
+		"ParameterKey": "UbuntuAmiId",
+		"ParameterValue": "ami-0c7217cdde317cfec"
+	},
+	{
+		"ParameterKey": "InstanceType",
+		"ParameterValue": "t2.micro"
 	}
 ]
