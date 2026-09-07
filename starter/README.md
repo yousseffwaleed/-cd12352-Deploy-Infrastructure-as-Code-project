@@ -51,6 +51,14 @@ bash ./scripts/validate.sh
 
 The script calls `aws cloudformation validate-template` for both templates. It requires valid AWS credentials because CloudFormation validation is an AWS API operation.
 
+If your local network causes `CERTIFICATE_VERIFY_FAILED`, fix the local CA/certificate configuration first. As a temporary, explicit diagnostic workaround only, you can set this for the current PowerShell session:
+
+```powershell
+$env:AWS_CLI_NO_VERIFY_SSL = '1'
+```
+
+This passes `--no-verify-ssl` to the scripts. It disables certificate verification and should not be used as a permanent security setting.
+
 ## Spin up or update the infrastructure
 
 PowerShell:
@@ -170,13 +178,31 @@ The editable Mermaid source is available in [infrastructure-diagram.md](infrastr
 
 ## Working test
 
-After a successful AWS deployment, record the generated URL here before submitting:
-
 ```text
-ALB URL: <paste the LoadBalancerURL stack output here>
+ALB URL: http://udagra-Appli-xG0SP5j8EN4c-1468493631.us-east-1.elb.amazonaws.com
 ```
 
-Open that URL and verify that it displays `It works! Udagram, Udacity`. This URL cannot be filled in until the stacks are deployed in an AWS account.
+[Open the Udagram application](http://udagra-Appli-xG0SP5j8EN4c-1468493631.us-east-1.elb.amazonaws.com)
+
+Static content bucket: `udagram-app-staticcontentbucket-2ffecnmnsc3v`
+
+Open the ALB URL and verify that it displays `It works! Udagram, Udacity`.
+
+### CloudFormation stack outputs
+
+![Both stacks CREATE_COMPLETE with timestamps](evidence/cloudformation-stacks-list.png)
+
+![udagram-network stack outputs](evidence/udagram-network-stack-outputs.png)
+
+![udagram-app stack outputs](evidence/udagram-app-stack-outputs.png)
+
+### Running infrastructure
+
+![Four EC2 instances running with passed health checks](evidence/ec2-instances-running.png)
+
+![Internet-facing Application Load Balancer](evidence/load-balancer.png)
+
+Still needed for full evidence: a screenshot of the site loaded through the ALB URL, and a screenshot of the S3 bucket showing `index.html`.
 
 If the resources are deleted before submission, capture:
 
