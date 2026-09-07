@@ -132,6 +132,12 @@ Resources:
           Name: !Ref WebServerInstanceProfile
         SecurityGroupIds:
           - !Ref WebServerSecurityGroup
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: 10
+              DeleteOnTermination: true
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -193,6 +199,11 @@ Resources:
 
   WebAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 2
+        MaxBatchSize: 2
+        WaitOnResourceSignals: false
     Properties:
       AutoScalingGroupName: !Sub ${EnvironmentName}-web-asg
       LaunchTemplate:

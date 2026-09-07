@@ -11,7 +11,7 @@ The application stack imports the VPC and subnet exports from the network stack.
 
 - An AWS account with permissions to create CloudFormation, VPC, EC2, Elastic Load Balancing, Auto Scaling, S3, IAM, and NAT Gateway resources.
 - AWS CLI v2 installed and configured with valid credentials.
-- Bash available through Git Bash or WSL on Windows.
+- PowerShell on Windows, or Bash through Git Bash/WSL on other environments.
 - A region with at least two Availability Zones. The supplied configuration uses `us-east-1`.
 - An Ubuntu 22.04 AMI ID for the deployment region. The supplied value is for `us-east-1`; verify it before deployment.
 
@@ -37,6 +37,14 @@ The network export prefix and application environment name must match. The defau
 
 Run the validation script before deployment:
 
+PowerShell:
+
+```powershell
+.\scripts\validate.ps1
+```
+
+Bash:
+
 ```bash
 bash ./scripts/validate.sh
 ```
@@ -44,6 +52,14 @@ bash ./scripts/validate.sh
 The script calls `aws cloudformation validate-template` for both templates. It requires valid AWS credentials because CloudFormation validation is an AWS API operation.
 
 ## Spin up or update the infrastructure
+
+PowerShell:
+
+```powershell
+.\scripts\create.ps1
+```
+
+Bash:
 
 ```bash
 bash ./scripts/create.sh
@@ -58,7 +74,18 @@ The script:
 5. Waits for the application stack to complete.
 6. Prints the application stack outputs, including the ALB URL.
 
-Custom stack names and region can be supplied without editing the scripts:
+Custom stack names and region can be supplied without editing the scripts.
+
+PowerShell:
+
+```powershell
+$env:AWS_REGION = 'us-east-1'
+$env:NETWORK_STACK_NAME = 'udagram-network-test'
+$env:APP_STACK_NAME = 'udagram-app-test'
+.\scripts\create.ps1
+```
+
+Bash:
 
 ```bash
 AWS_REGION=us-east-1 \
@@ -99,13 +126,31 @@ The expected result is four EC2 instances in the two private subnets, registered
 
 ## Tear down the infrastructure
 
+PowerShell:
+
+```powershell
+.\scripts\delete.ps1
+```
+
+Bash:
+
 ```bash
 bash ./scripts/delete.sh
 ```
 
 The script deletes `udagram-app` first and waits for completion. It then deletes `udagram-network`. This order is required because the application stack consumes exports from the network stack.
 
-Custom stack names can be supplied in the same way as the create script:
+Custom stack names can be supplied in the same way as the create script.
+
+PowerShell:
+
+```powershell
+$env:NETWORK_STACK_NAME = 'udagram-network-test'
+$env:APP_STACK_NAME = 'udagram-app-test'
+.\scripts\delete.ps1
+```
+
+Bash:
 
 ```bash
 NETWORK_STACK_NAME=udagram-network-test \
@@ -123,12 +168,22 @@ The editable Mermaid source is available in [infrastructure-diagram.md](infrastr
 
 ## Submission evidence
 
-For a live submission, provide the working ALB URL and verify the required message is visible.
+## Working test
+
+After a successful AWS deployment, record the generated URL here before submitting:
+
+```text
+ALB URL: <paste the LoadBalancerURL stack output here>
+```
+
+Open that URL and verify that it displays `It works! Udagram, Udacity`. This URL cannot be filled in until the stacks are deployed in an AWS account.
 
 If the resources are deleted before submission, capture:
 
 - CloudFormation outputs from both stacks with visible deployment date and time.
 - Successful access to the application through the ALB URL.
 - The S3 bucket containing the static file.
+
+The launch template explicitly provisions a 10 GB `gp3` root volume for every Auto Scaling Group instance. If the stack already exists, run `bash ./scripts/create.sh` to apply the launch-template update and replace instances as needed before collecting evidence.
 
 Do not commit AWS credentials, private keys, or other secrets to this repository.
